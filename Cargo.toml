@@ -2,7 +2,7 @@
 name = "rktpb"
 version = "1.0.0"
 authors = ["Sergio Benitez <sb@sergio.bz>"]
-edition = "2021"
+edition = "2024"
 description = "A pastebin that does just enough to be really useful."
 repository = "https://github.com/SergioBenitez/rktpb"
 readme = "README.md"
@@ -15,12 +15,11 @@ large_enum_variant = "allow"
 mutable_key_type = "allow"
 
 [dependencies]
-rocket = "0.5"
+rocket = { version = "0.5", default-features = false }
 rocket_dyn_templates = { version = "0.2", features = ["tera"] }
-yansi = "1.0.0-rc"
-rand = "0.8"
-syntect = "5"
-comrak = { version = "0.26", default-features = false }
-futures = "0.3"
+rand = { version = "0.10", default-features = false, features = ["thread_rng"] }
+syntect = { version = "5", default-features = false, features = ["html", "default-syntaxes", "regex-onig", "plist-load"] }
+comrak = { version = "0.50", default-features = false }
 humantime = "2.1"
 humantime-serde = "1.1"
+thiserror = "*"

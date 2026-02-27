@@ -1,36 +1,60 @@
 #[macro_use]
 extern crate rocket;
 
-mod paste_id;
-mod os_header;
-mod highlight;
-mod cors;
 mod config;
+mod cors;
+mod highlight;
+mod paste_id;
 mod reaper;
 
-use rocket::tokio::{fs, io};
+use rocket::tokio::fs;
 use rocket_dyn_templates::{Template, context};
 
 use rocket::State;
-use rocket::form::Form;
 use rocket::data::Capped;
 use rocket::fairing::AdHoc;
-use rocket::response::Redirect;
-use rocket::request::FlashMessage;
+use rocket::form::Form;
 use rocket::fs::{FileServer, TempFile};
-use rocket::http::{Status, ContentType};
+use rocket::http::{ContentType, Status};
+use rocket::request::FlashMessage;
+use rocket::response::Redirect;
 
-use paste_id::PasteId;
-use os_header::ClientOs;
-use highlight::{Highlighter, HIGHLIGHT_EXTS};
 use config::Config;
 use cors::Cors;
+use highlight::{HIGHLIGHT_EXTS, Highlighter};
+use paste_id::PasteId;
 use reaper::Reaper;
+
+#[derive(thiserror::Error, Debug, Responder)]
+pub(crate) enum Error {
+    #[error("input/output")]
+    Io(#[from] std::io::Error),
+}
+
+impl From<&'static str> for Error {
+    fn from(other: &'static str) -> Self {
+        Self::Io(std::io::Error::other(other))
+    }
+}
+
+impl From<syntect::Error> for Error {
+    fn from(other: syntect::Error) -> Self {
+        Self::Io(std::io::Error::other(other.to_string()))
+    }
+}
+
+impl From<std::fmt::Error> for Error {
+    fn from(other: std::fmt::Error) -> Self {
+        Self::Io(std::io::Error::other(other.to_string()))
+    }
+}
+
+pub(crate) type Result<T> = core::result::Result<T, Error>;
 
 #[derive(Responder)]
 pub enum Paste {
     Highlighted(Template),
-    Regular(Vec<u8>, ContentType),
+    Regular(String, ContentType),
     Markdown(Template),
 }
 
@@ -43,36 +67,66 @@ struct PasteForm<'r> {
 }
 
 #[post("/", data = "<paste>")]
-async fn upload(
-    mut paste: Capped<TempFile<'_>>,
-    config: &Config,
-) -> io::Result<(Status, String)> {
+async fn upload(mut paste: Capped<TempFile<'_>>, config: &Config) -> Result<(Status, String)> {
     let id = PasteId::new(config);
     paste.persist_to(id.file_path(config)).await?;
 
     let paste_uri = uri!(config.server_url.clone(), get(id));
-    let status = match paste.is_complete() {
-        true => Status::Created,
-        false => Status::PartialContent,
+    let status = if paste.is_complete() {
+        Status::Created
+    } else {
+        Status::PartialContent
     };
 
     Ok((status, paste_uri.to_string()))
 }
 
 #[post("/web", data = "<form>")]
-async fn web_form_submit(
-    mut form: Form<PasteForm<'_>>,
-    config: &Config,
-) -> io::Result<Redirect> {
+async fn web_form_submit(mut form: Form<PasteForm<'_>>, config: &Config) -> Result<Redirect> {
     let id = PasteId::with_ext(config, form.ext);
     form.content.persist_to(&id.file_path(config)).await?;
     Ok(Redirect::to(uri!(get(id))))
 }
 
+#[post("/<ext>", data = "<paste>")]
+async fn upload_ext(
+    ext: &str,
+    mut paste: Capped<TempFile<'_>>,
+    config: &Config,
+) -> Result<(Status, String)> {
+    let id = PasteId::with_ext(config, ext);
+    paste.persist_to(id.file_path(config)).await?;
+
+    let paste_uri = uri!(config.server_url.clone(), get(id));
+    let status = if paste.is_complete() {
+        Status::Created
+    } else {
+        Status::PartialContent
+    };
+
+    Ok((status, paste_uri.to_string()))
+}
+
 // TODO: Authenticate a delete using some kind of token.
 #[delete("/<id>")]
 async fn delete(id: PasteId<'_>, config: &Config) -> Option<&'static str> {
-    fs::remove_file(&id.file_path(config)).await.map(|_| "deleted\n").ok()
+    fs::remove_file(&id.file_path(config))
+        .await
+        .and(Ok("deleted\n"))
+        .ok()
+}
+
+#[get("/raw/<id>")]
+async fn get_raw(id: PasteId<'_>, config: &Config) -> Result<Option<Paste>> {
+    let path = id.file_path(config);
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    Ok(Some(Paste::Regular(
+        fs::read_to_string(path).await?,
+        ContentType::Plain,
+    )))
 }
 
 #[get("/<id>")]
@@ -80,55 +134,74 @@ async fn get(
     id: PasteId<'_>,
     highlighter: &State<Highlighter>,
     config: &Config,
-) -> io::Result<Option<Paste>> {
+) -> Result<Option<Paste>> {
     let path = id.file_path(config);
     if !path.exists() {
         return Ok(None);
     }
 
-    let data = fs::read(path).await?;
-    let paste = match id.ext() {
+    let data = fs::read_to_string(path).await?;
+    let paste = match id.ext {
         Some("md" | "mdown" | "markdown") => {
-            let string = String::from_utf8_lossy(&data);
-            let content = highlighter.render_markdown(&string)?;
-            Paste::Markdown(Template::render("markdown", context! { config, id, content }))
+            let content = highlighter.render_markdown(&data)?;
+            Paste::Markdown(Template::render(
+                "markdown",
+                context! { config, id, content },
+            ))
         }
         Some(ext) if Highlighter::contains(ext) => {
-            let string = String::from_utf8_lossy(&data);
-            let content = highlighter.highlight(&string, ext)?;
+            let content = highlighter.highlight(&data, ext)?;
             let lines = content.lines().count();
-            Paste::Highlighted(Template::render("code", context! { config, id, content, lines }))
+            Paste::Highlighted(Template::render(
+                "code",
+                context! { config, id, content, lines },
+            ))
         }
-        _ => Paste::Regular(data, id.content_type().unwrap_or(ContentType::Plain)),
+        _ => {
+            let lines = data.lines().count();
+            Paste::Highlighted(Template::render(
+                "plain",
+                context! { config, id, content: data, lines },
+            ))
+        }
     };
 
     Ok(Some(paste))
 }
 
 #[get("/")]
-fn index(config: &Config, os: Option<ClientOs>) -> Template {
-    let (os, cmd) = match os.map(|os| os.name()) {
-        Some(os @ "windows") => (os, "PowerShell"),
-        Some(os @ ("linux" | "darwin")) => (os, "cURL"),
-        _ => ("unix", "cURL")
-    };
-
-    Template::render("index", context! { config, cmd, os })
+fn index(config: &Config) -> Template {
+    Template::render("index", context! { config })
 }
 
 #[get("/web")]
 fn web_form(config: &Config, flash: Option<FlashMessage>) -> Template {
-    Template::render("new", context! {
-        config,
-        extensions: HIGHLIGHT_EXTS,
-        error: flash.as_ref().map(FlashMessage::message),
-    })
+    Template::render(
+        "new",
+        context! {
+            config,
+            extensions: &*HIGHLIGHT_EXTS,
+            error: flash.map(|f| f.into_inner().1),
+        },
+    )
 }
 
 #[rocket::launch]
 fn rocket() -> _ {
     rocket::custom(Config::figment())
-        .mount("/", routes![index, upload, get, delete, web_form, web_form_submit])
+        .mount(
+            "/",
+            routes![
+                index,
+                upload,
+                get,
+                get_raw,
+                delete,
+                web_form,
+                web_form_submit,
+                upload_ext
+            ],
+        )
         .mount("/", FileServer::from("static").rank(-20))
         .manage(Highlighter::default().expect("failed to load syntax highlighter"))
         .attach(Template::fairing())

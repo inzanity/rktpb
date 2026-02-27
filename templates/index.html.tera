@@ -33,11 +33,11 @@
           uploaded. If the response code is anything else, an error has
           occurred. Pasting is heavily rate limited.
 
-      GET {{ config.server_url }}/&lt;id>
+      GET {{ config.server_url }}/&lt;id&gt;
 
           Retrieve the paste with the given id as plain-text.
 
-      GET {{ config.server_url }}/&lt;id>.&lt;ext>
+      GET {{ config.server_url }}/&lt;id&gt;.&lt;ext&gt;
 
           Retrieve the paste with the given id.
 
@@ -47,38 +47,28 @@
           extension, the paste is returned with the format's corresponding
           Content-Type. Otherwise, the paste is returned as unmodified text.
 
-      DELETE {{ config.server_url }}/&lt;id>
+      DELETE {{ config.server_url }}/&lt;id&gt;
 
           Delete the paste with the given id.
 
   EXAMPLES
 
-      Paste a file named 'file.txt' using {{ cmd }}:
+      Paste a file named 'file.txt':
 
-          {% if os == "windows" -%}
               Invoke-RestMethod -Uri "{{ config.server_url }}" -Method Post -InFile .\file.txt
-          {%- else -%}
               curl --data-binary @file.txt {{ config.server_url }}/
-          {%- endif %}
 
-      Paste from stdin using {{ cmd }}:
+      Paste from stdin:
 
-          {% if os == "windows" -%}
               echo "Hi!" | Invoke-RestMethod -Uri "{{ config.server_url }}" -Method Post
-          {%- else -%}
               echo "Hello, world." | curl --data-binary @- {{ config.server_url }}/
-          {%- endif %}
 
-      Delete an existing paste with id &lt;id> using {{ cmd }}:
+      Delete an existing paste with id &lt;id&gt;:
 
-          {% if os == "windows" -%}
-              Invoke-RestMethod -Uri "{{ config.server_url }}/&lt;id>" -Method Delete
-          {%- else -%}
-              curl -X DELETE {{ config.server_url }}/&lt;id>
-          {%- endif %}
+              Invoke-RestMethod -Uri "{{ config.server_url }}/&lt;id&gt;" -Method Delete
+              curl -X DELETE {{ config.server_url }}/&lt;id&gt;
 
-      {% if os == "windows" -%}
-         A {{ cmd }} function that can be used for quick pasting from the
+         A PowerShell function that can be used for quick pasting from the
       command line. The command takes a filename or reads from stdin if none was
       supplied and outputs the URL of the paste to stdout: `Paste file.txt` or
       `echo "hi" | Paste`.
@@ -87,8 +77,8 @@
               $Data = if ($file) {Get-Content $file} else {$input}
               Invoke-RestMethod -Uri "{{ config.server_url }}" -Method Post -Body $Data
           }
-      {%- else -%}
-         A shell function that can be added to `.bashrc` or `.bash_profle` for
+
+         A shell function that can be added to `.bashrc` or `.bash_profile` for
       quick pasting from the command line. The command takes a filename or reads
       from stdin if none was supplied and outputs the URL of the paste to
       stdout: `paste file.txt` or `echo "hi" | paste`.
@@ -97,6 +87,5 @@
               local file=${1:-/dev/stdin}
               curl --data-binary @${file} {{ config.server_url }}
           }
-      {%- endif %}
   </pre></body>
 </html>

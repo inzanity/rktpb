@@ -1,16 +1,28 @@
-use std::io::Cursor;
 use std::collections::HashMap;
+use std::io::Cursor;
 
-use rocket::{Rocket, Request, Response, Orbit};
 use rocket::fairing::{AdHoc, Fairing, Info, Kind};
-use rocket::http::{Status, Header, Method, uri::Absolute};
-use rocket::serde::{Serialize, Deserialize};
+use rocket::http::{Header, Method, Status, uri::Absolute};
+use rocket::serde::{Deserialize, Serialize};
+use rocket::{Orbit, Request, Response, Rocket};
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(crate = "rocket::serde")]
 pub struct Cors {
     #[serde(default)]
     cors: HashMap<Absolute<'static>, Vec<Method>>,
+}
+
+impl std::fmt::Display for Cors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        for (host, methods) in &self.cors {
+            write!(f, "{host}:")?;
+            for method in methods {
+                write!(f, " {method}")?;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Cors {
@@ -22,7 +34,7 @@ impl Cors {
                     let kind = rocket::error::ErrorKind::Config(e);
                     rocket::Error::from(kind).pretty_print();
                     Err(rocket)
-                },
+                }
             }
         })
     }
@@ -31,25 +43,26 @@ impl Cors {
 #[rocket::async_trait]
 impl Fairing for Cors {
     fn info(&self) -> Info {
-        Info { name: "CORS", kind: Kind::Liftoff | Kind::Response }
+        Info {
+            name: "CORS",
+            kind: Kind::Liftoff | Kind::Response,
+        }
     }
 
     async fn on_liftoff(&self, _rocket: &Rocket<Orbit>) {
-        use yansi::Paint;
-
-        info!("{}{}", "📫 ".mask(), "CORS:".magenta());
+        info!("{}", "CORS:");
         if self.cors.is_empty() {
-            return info_!("status: {}", "disabled".red());
-        }
-
-        info_!("status: {}", "enabled".green());
-        for (host, methods) in &self.cors {
-            info_!("{}: {:?}", host.magenta(), methods.primary());
+            info_!("status: disabled");
+        } else {
+            info_!("status: enabled");
+            info_!("{self}");
         }
     }
 
-    async fn on_response<'r>(&self, req: &'r Request<'_>, res: &mut Response<'r>) {
-        let allowed_host_methods = req.headers().get_one("Origin")
+    async fn on_response<'r>(&self, req: &'r Request<'_>, resp: &mut Response<'r>) {
+        let allowed_host_methods = req
+            .headers()
+            .get_one("Origin")
             .and_then(|origin| Absolute::parse(origin).ok())
             .and_then(|host| self.cors.get_key_value(&host))
             .filter(|(_, methods)| methods.contains(&req.method()));
@@ -59,19 +72,19 @@ impl Fairing for Cors {
             const ALLOW_METHODS: &str = "Access-Control-Allow-Methods";
             const ALLOW_HEADERS: &str = "Access-Control-Allow-Headers";
 
-            let mut allow_methods = String::with_capacity(methods.len() * 8);
-            for (i, method) in methods.iter().enumerate() {
-                if i != 0 { allow_methods.push(','); }
-                allow_methods.push_str(method.as_str());
-            }
+            let allow_methods = methods
+                .iter()
+                .map(|m| m.as_str())
+                .collect::<Vec<_>>()
+                .join(",");
 
-            res.set_header(Header::new(ALLOW_ORIGIN, host.to_string()));
-            res.set_header(Header::new(ALLOW_METHODS, allow_methods));
-            res.set_header(Header::new(ALLOW_HEADERS, "Content-Type"));
+            resp.set_header(Header::new(ALLOW_ORIGIN, host.to_string()));
+            resp.set_header(Header::new(ALLOW_METHODS, allow_methods));
+            resp.set_header(Header::new(ALLOW_HEADERS, "Content-Type"));
 
-            if req.method() == Method::Options && res.status() == Status::NotFound {
-                res.set_status(Status::Ok);
-                res.set_sized_body(0, Cursor::new(""));
+            if req.method() == Method::Options && resp.status() == Status::NotFound {
+                resp.set_status(Status::Ok);
+                resp.set_sized_body(0, Cursor::new(""));
             }
         }
     }
