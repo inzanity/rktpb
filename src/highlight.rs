@@ -1,7 +1,7 @@
 use std::io;
 use std::sync::LazyLock;
 
-use syntect::highlighting::{Theme, ThemeSet};
+use syntect::highlighting::ThemeSet;
 use syntect::parsing::SyntaxSet;
 
 use super::Result;
@@ -17,6 +17,7 @@ pub static HIGHLIGHT_EXTS: LazyLock<Vec<String>> = LazyLock::new(|| {
     exts.sort();
     exts
 });
+
 static OPTIONS: LazyLock<comrak::Options<'static>> = LazyLock::new(|| {
     comrak::Options {
         extension: comrak::options::Extension {
@@ -42,33 +43,42 @@ static OPTIONS: LazyLock<comrak::Options<'static>> = LazyLock::new(|| {
 });
 
 pub struct Highlighter {
-    theme: Theme,
+    style: String,
 }
 
 impl Highlighter {
     pub fn default() -> Option<Self> {
+        use syntect::html::{ClassStyle, css_for_theme_with_class_style};
+
         let mut reader = io::Cursor::new(include_str!("../static/GitHub.tmtheme"));
-        Some(Self {
-            theme: ThemeSet::load_from_reader(&mut reader).ok()?,
-        })
+        let theme = ThemeSet::load_from_reader(&mut reader).ok()?;
+        let style = css_for_theme_with_class_style(&theme, ClassStyle::Spaced).ok()?;
+
+        Some(Self { style })
     }
 
     pub fn contains(ext: &str) -> bool {
         SYNTAXES.find_syntax_by_extension(ext).is_some()
     }
 
+    pub fn style(&self) -> &str {
+        &self.style
+    }
+
     pub fn highlight(&self, code: &str, lang: &str) -> Result<String> {
+        use syntect::html::{ClassStyle, ClassedHTMLGenerator};
+        use syntect::util::LinesWithEndings;
         let syntaxes = &*SYNTAXES;
         let syntax = syntaxes
             .find_syntax_by_token(lang)
             .ok_or("missing syntax")?;
 
-        Ok(syntect::html::highlighted_html_for_string(
-            code,
-            syntaxes,
-            syntax,
-            &self.theme,
-        )?)
+        let mut generator =
+            ClassedHTMLGenerator::new_with_class_style(syntax, syntaxes, ClassStyle::Spaced);
+        for line in LinesWithEndings::from(code) {
+            generator.parse_html_for_line_which_includes_newline(line)?;
+        }
+        Ok(generator.finalize())
     }
 
     pub fn render_markdown(&self, markdown: &str) -> Result<String> {

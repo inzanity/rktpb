@@ -129,6 +129,14 @@ async fn get_raw(id: PasteId<'_>, config: &Config) -> Result<Option<Paste>> {
     )))
 }
 
+#[get("/theme.css")]
+async fn get_theme(highlighter: &State<Highlighter>) -> Result<Option<Paste>> {
+    Ok(Some(Paste::Regular(
+        highlighter.style().to_owned(),
+        ContentType::CSS,
+    )))
+}
+
 #[get("/<id>")]
 async fn get(
     id: PasteId<'_>,
@@ -196,6 +204,7 @@ fn rocket() -> _ {
                 upload,
                 get,
                 get_raw,
+                get_theme,
                 delete,
                 web_form,
                 web_form_submit,

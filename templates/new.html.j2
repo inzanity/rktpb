@@ -38,11 +38,11 @@
   </head>
   <body>
      <div class="container">
-        {% if error %}
+        {%- if error %}
            <div class="error">
               Error: {{ error }}
            </div>
-        {% endif %}
+        {%- endif %}
 
         <form method="post" action="/web">
            <textarea name="content" required minlength="1" maxlength="393216" \
@@ -50,11 +50,11 @@
            <br />
            <label for="ext">File Extension:</label>
            <select name="ext">
-              {% for ext in extensions %}
-                 <option {% if ext == "txt" %}selected{% endif %} value="{{ ext }}">
+              {%- for ext in extensions %}
+                 <option {%- if ext == "txt" %}selected{%- endif %} value="{{ ext }}">
                     {{ ext }}
                  </option>
-              {% endfor %}
+              {%- endfor %}
            </select>
            <br />
            <input type="submit" value="Paste!" />

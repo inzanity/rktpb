@@ -16,7 +16,7 @@ mutable_key_type = "allow"
 
 [dependencies]
 rocket = { version = "0.5", default-features = false }
-rocket_dyn_templates = { version = "0.2", features = ["tera"] }
+rocket_dyn_templates = { version = "0.2", default-features = false, features = ["minijinja"] }
 rand = { version = "0.10", default-features = false, features = ["thread_rng"] }
 syntect = { version = "5", default-features = false, features = ["html", "default-syntaxes", "regex-onig", "plist-load"] }
 comrak = { version = "0.50", default-features = false }
